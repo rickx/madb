@@ -53,15 +53,15 @@ namespace SharpAdbClient.Tests
         [Fact]
         public void FormAdbRequestTest()
         {
-            Assert.Equal(Encoding.ASCII.GetBytes("0009host:kill\n"), AdbClient.FormAdbRequest("host:kill"));
-            Assert.Equal(Encoding.ASCII.GetBytes("000Chost:version\n"), AdbClient.FormAdbRequest("host:version"));
+            Assert.Equal(Encoding.ASCII.GetBytes("0009host:kill"), AdbClient.FormAdbRequest("host:kill"));
+            Assert.Equal(Encoding.ASCII.GetBytes("000Chost:version"), AdbClient.FormAdbRequest("host:version"));
         }
 
         [Fact]
         public void CreateAdbForwardRequestTest()
         {
-            Assert.Equal(Encoding.ASCII.GetBytes("0008tcp:1984\n"), AdbClient.CreateAdbForwardRequest(null, 1984));
-            Assert.Equal(Encoding.ASCII.GetBytes("0012tcp:1981:127.0.0.1\n"), AdbClient.CreateAdbForwardRequest("127.0.0.1", 1981));
+            Assert.Equal(Encoding.ASCII.GetBytes("0008tcp:1984"), AdbClient.CreateAdbForwardRequest(null, 1984));
+            Assert.Equal(Encoding.ASCII.GetBytes("0012tcp:1981:127.0.0.1"), AdbClient.CreateAdbForwardRequest("127.0.0.1", 1981));
         }
 
         [Fact]
@@ -160,7 +160,7 @@ namespace SharpAdbClient.Tests
                 requests,
                 () =>
                 {
-                    this.TestClient.SetDevice(this.Socket, Device);
+                    this.Socket.SetDevice(Device);
                 });
         }
 
@@ -178,7 +178,7 @@ namespace SharpAdbClient.Tests
                 requests,
                 () =>
                 {
-                    this.TestClient.SetDevice(this.Socket, Device);
+                    this.Socket.SetDevice(Device);
                 }));
         }
 
@@ -196,7 +196,7 @@ namespace SharpAdbClient.Tests
                 requests,
                 () =>
                 {
-                    this.TestClient.SetDevice(this.Socket, Device);
+                    this.Socket.SetDevice(Device);
                 }));
         }
 
@@ -257,7 +257,7 @@ namespace SharpAdbClient.Tests
                     this.TestClient.ExecuteRemoteCommand("echo Hello, World", device, receiver);
                 });
 
-            Assert.Equal("Hello, World\r\n", receiver.ToString());
+            Assert.Equal("Hello, World\r\n", receiver.ToString(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -301,6 +301,15 @@ namespace SharpAdbClient.Tests
         {
             this.RunCreateForwardTest(
                 (device) => this.TestClient.CreateForward(device, "tcp:1", "tcp:2", true),
+                "tcp:1;tcp:2");
+        }
+
+
+        [Fact]
+        public void CreateReverseTest()
+        {
+            this.RunCreateReverseTest(
+                (device) => this.TestClient.CreateReverseForward(device, "tcp:1", "tcp:2", true),
                 "tcp:1;tcp:2");
         }
 
@@ -371,6 +380,39 @@ namespace SharpAdbClient.Tests
         }
 
         [Fact]
+        public void ListReverseForwardTest()
+        {
+            var responseMessages = new string[] {
+                "(reverse) localabstract:scrcpy tcp:100\n(reverse) localabstract: scrcpy2 tcp:100\n(reverse) localabstract: scrcpy3 tcp:100\n"
+            };
+            var responses = new AdbResponse[]
+            {
+                AdbResponse.OK,
+                AdbResponse.OK,
+            };
+
+            var requests = new string[]
+            {
+                "host:transport:169.254.109.177:5555",
+                "reverse:list-forward"
+            };
+
+            ForwardData[] forwards = null;
+
+            this.RunTest(
+                responses,
+                responseMessages,
+                requests,
+                () => forwards = this.TestClient.ListReverseForward(Device).ToArray());
+
+            Assert.NotNull(forwards);
+            Assert.Equal(3, forwards.Length);
+            Assert.Equal("(reverse)", forwards[0].SerialNumber);
+            Assert.Equal("localabstract:scrcpy", forwards[0].Local);
+            Assert.Equal("tcp:100", forwards[0].Remote);
+        }
+
+        [Fact]
         public void RemoveForwardTest()
         {
             var requests = new string[]
@@ -386,6 +428,28 @@ namespace SharpAdbClient.Tests
         }
 
         [Fact]
+        public void RemoveReverseForwardTest()
+        {
+            var requests = new string[]
+            {
+                "host:transport:169.254.109.177:5555",
+                "reverse:killforward:localabstract:test"
+            };
+
+            var responses = new AdbResponse[]
+            {
+                AdbResponse.OK,
+                AdbResponse.OK,
+            };
+
+            this.RunTest(
+                responses,
+                NoResponseMessages,
+                requests,
+                () => this.TestClient.RemoveReverseForward(Device, "localabstract:test"));
+        }
+
+        [Fact]
         public void RemoveAllForwardsTest()
         {
             var requests = new string[]
@@ -398,6 +462,28 @@ namespace SharpAdbClient.Tests
                 NoResponseMessages,
                 requests,
                 () => this.TestClient.RemoveAllForwards(Device));
+        }
+
+        [Fact]
+        public void RemoveAllReversesTest()
+        {
+            var requests = new string[]
+            {
+                "host:transport:169.254.109.177:5555",
+                "reverse:killforward-all"
+            };
+
+            var responses = new AdbResponse[]
+            {
+                AdbResponse.OK,
+                AdbResponse.OK,
+            };
+
+            this.RunTest(
+                responses,
+                NoResponseMessages,
+                requests,
+                () => this.TestClient.RemoveAllReverseForwards(Device));
         }
 
         [Fact]
@@ -650,6 +736,29 @@ namespace SharpAdbClient.Tests
                 NoResponseMessages,
                 requests,
                 test);
+        }
+
+        private void RunCreateReverseTest(Action<DeviceData> test, string reverseString)
+        {
+            var requests = new string[]
+            {
+                "host:transport:169.254.109.177:5555",
+                $"reverse:forward:{reverseString}",
+            };
+
+            this.RunTest(
+                new AdbResponse[]
+                {
+                    AdbResponse.OK,
+                    AdbResponse.OK,
+                    AdbResponse.OK
+                },
+                new string[]
+                {
+                    null
+                },
+                requests,
+                () => test(Device));
         }
 
         private void RunCreateForwardTest(Action<DeviceData> test, string forwardString)
